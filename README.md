@@ -192,7 +192,7 @@ jupyter notebook notebooks/01_data_exploration.ipynb
 
 ## 👤 Author
 
-**Chitra (Queen) Dubey**  
+**Chitra Dubey**  
 Senior Business Analyst | Data & BI Analyst  
 TechFios — Supporting Realty Income (S&P 500 Commercial REIT)  
 M.S. Information Systems & Technology, University of North Texas  
