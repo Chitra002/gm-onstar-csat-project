@@ -1,0 +1,45 @@
+# GM OnStar CSAT Project — .gitignore
+
+# ── Sensitive / Environment ────────────────────────────────────────────────
+.env
+*.env
+config/secrets.yaml
+config/credentials.yaml
+
+# ── Raw Data (never commit real customer data) ─────────────────────────────
+data/raw/*.csv
+data/raw/*.xlsx
+data/raw/*.parquet
+data/processed/*.csv
+data/processed/*.parquet
+# Sample data IS committed (synthetic only)
+!data/sample/
+
+# ── Python ────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ── Jupyter ───────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ── OS ────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── IDE ───────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
