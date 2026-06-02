@@ -1,0 +1,50 @@
+# config/settings.yaml
+# GM OnStar CSAT Improvement Project
+# Central configuration — override with environment variables for production
+
+project:
+  name: "GM OnStar CSAT Improvement"
+  version: "1.0"
+  author: "Chitra (Queen) Dubey"
+  analysis_months: 6
+  timezone: "America/Chicago"   # Call center local time
+
+data:
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  sample_dir: "data/sample"
+  min_handle_time_seconds: 30   # Exclude test/sub-30s calls
+
+analysis:
+  min_agent_tickets: 50         # Minimum tickets to include agent in agent-level analysis
+  survey_suppression_zscore_threshold: -2.0   # Z-score below which agent is flagged
+  csat_scale_max: 5.0           # Normalize all scores to 1–5
+
+ai_automation:
+  model: "claude-sonnet-4-20250514"
+  verbatim_batch_size: 20
+  themes:
+    - "resolution_quality"
+    - "wait_time"
+    - "agent_attitude"
+    - "technical_issue"
+    - "billing"
+    - "navigation"
+    - "transfer_experience"
+    - "other"
+
+salesforce:
+  instance_url: ""    # Set via SALESFORCE_INSTANCE_URL env var
+  api_version: "59.0"
+
+snowflake:
+  account: ""         # Set via SNOWFLAKE_ACCOUNT env var
+  warehouse: "COMPUTE_WH"
+  database: "ONSTAR_ANALYTICS"
+  schema: "STAGING"
+  role: "ANALYST_ROLE"
+
+reporting:
+  weekly_digest_day: "Monday"
+  executive_update_day: "Tuesday"
+  stakeholder_steering_day: "Thursday"

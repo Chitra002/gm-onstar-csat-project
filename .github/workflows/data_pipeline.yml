@@ -1,0 +1,171 @@
+# .github/workflows/data_pipeline.yml
+# ─────────────────────────────────────────────────────────────────────────────
+# GM OnStar CSAT — Automated Data Pipeline
+#
+# Runs every Monday at 6:00 AM CT (11:00 UTC) to:
+#   1. Refresh source data extracts
+#   2. Rebuild the master dataset
+#   3. Run AI verbatim classification on new rows
+#   4. Run data validation checks
+#   5. Upload outputs to SharePoint / storage
+#
+# Triggered manually via workflow_dispatch for ad-hoc refreshes.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: CSAT Data Pipeline
+
+on:
+  schedule:
+    - cron: "0 11 * * MON"   # Every Monday at 11:00 UTC (6:00 AM CT)
+  workflow_dispatch:          # Allow manual trigger from GitHub UI
+    inputs:
+      full_refresh:
+        description: "Run full 6-month refresh (vs. incremental)"
+        required: false
+        default: "false"
+        type: boolean
+
+jobs:
+  run-pipeline:
+    name: Refresh CSAT Dataset
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      # ── Setup ──────────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # ── Data Extraction ────────────────────────────────────────────────────
+      - name: Extract CRM ticket data
+        env:
+          SALESFORCE_USERNAME: ${{ secrets.SALESFORCE_USERNAME }}
+          SALESFORCE_PASSWORD: ${{ secrets.SALESFORCE_PASSWORD }}
+          SALESFORCE_TOKEN:    ${{ secrets.SALESFORCE_TOKEN }}
+        run: |
+          python src/ingestion/salesforce_connector.py \
+            --mode ${{ inputs.full_refresh == 'true' && 'full' || 'incremental' }} \
+            --output data/raw/tickets_latest.csv
+
+      - name: Extract survey data
+        env:
+          MEDALLIA_API_KEY: ${{ secrets.MEDALLIA_API_KEY }}
+          MEDALLIA_BASE_URL: ${{ secrets.MEDALLIA_BASE_URL }}
+        run: |
+          python src/ingestion/medallia_connector.py \
+            --output data/raw/surveys_latest.csv
+
+      # ── Data Cleaning & Master Build ───────────────────────────────────────
+      - name: Deduplicate and clean tickets
+        run: |
+          python src/cleaning/deduplication.py \
+            --input  data/raw/tickets_latest.csv \
+            --output data/processed/tickets_clean.csv
+
+      - name: Build master dataset
+        run: |
+          python src/cleaning/feature_engineering.py \
+            --tickets  data/processed/tickets_clean.csv \
+            --surveys  data/raw/surveys_latest.csv \
+            --output   data/processed/onstar_csat_master.csv
+
+      # ── Data Validation ────────────────────────────────────────────────────
+      - name: Run validation checks
+        run: |
+          python src/cleaning/validation.py \
+            --input data/processed/onstar_csat_master.csv \
+            --report data/processed/validation_report.json
+
+      - name: Fail on critical validation errors
+        run: |
+          python -c "
+          import json, sys
+          with open('data/processed/validation_report.json') as f:
+              report = json.load(f)
+          if report.get('critical_failures', 0) > 0:
+              print('❌ CRITICAL VALIDATION FAILURES DETECTED:')
+              for e in report.get('errors', []):
+                  print(f'  - {e}')
+              sys.exit(1)
+          print(f'✅ Validation passed: {report[\"total_rows\"]:,} rows, {report[\"warnings\"]} warnings')
+          "
+
+      # ── AI Classification ──────────────────────────────────────────────────
+      - name: Classify verbatim comments (incremental only)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          python src/ai_automation/verbatim_classifier.py \
+            --input  data/processed/onstar_csat_master.csv \
+            --output data/processed/master_with_themes.csv \
+            --batch-size 20
+
+      # ── Analysis ───────────────────────────────────────────────────────────
+      - name: Run Track 1 — Survey Trigger Analysis
+        run: |
+          python src/analysis/survey_trigger_analysis.py \
+            --input  data/processed/master_with_themes.csv \
+            --output data/processed/analysis
+
+      - name: Run Track 2 — Response Rate Analysis
+        run: |
+          python src/analysis/response_rate_analysis.py \
+            --input  data/processed/master_with_themes.csv \
+            --output data/processed/analysis
+
+      # ── Weekly Digest ──────────────────────────────────────────────────────
+      - name: Generate AI weekly digest
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          WEEK=$(python -c "from datetime import datetime; print(datetime.now().strftime('%G-W%V'))")
+          python src/ai_automation/insight_summarizer.py \
+            --input  data/processed/master_with_themes.csv \
+            --week   $WEEK \
+            --output data/processed/weekly_digest_${WEEK}.txt
+
+      # ── Upload Outputs ─────────────────────────────────────────────────────
+      - name: Upload analysis artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: csat-pipeline-outputs-${{ github.run_number }}
+          path: |
+            data/processed/*.csv
+            data/processed/*.json
+            data/processed/*.txt
+          retention-days: 30
+
+      # ── Notify ─────────────────────────────────────────────────────────────
+      - name: Send Teams notification on success
+        if: success()
+        env:
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+        run: |
+          python -c "
+          import requests, os, json
+          from datetime import datetime
+          payload = {
+              'text': f'✅ OnStar CSAT pipeline completed successfully — {datetime.now().strftime(\"%Y-%m-%d %H:%M\")} UTC. New digest available.'
+          }
+          requests.post(os.environ['TEAMS_WEBHOOK_URL'], json=payload)
+          "
+
+      - name: Send Teams alert on failure
+        if: failure()
+        env:
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+        run: |
+          python -c "
+          import requests, os
+          payload = {'text': '❌ OnStar CSAT pipeline FAILED. Check GitHub Actions logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'}
+          requests.post(os.environ['TEAMS_WEBHOOK_URL'], json=payload)
+          "
