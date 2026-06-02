@@ -1,6 +1,11 @@
 # 📊 GM OnStar CSAT Improvement Project
 ### Business Analytics | AI-Augmented | Call Center Intelligence
 
+> ⚠️ **Portfolio Project Disclaimer:** This is a portfolio project 
+> demonstrating a business analytics methodology applied to a call 
+> center CSAT scenario. All data is synthetic and generated for 
+> demonstration purposes only. No real GM, OnStar, or customer data 
+> is used anywhere in this project.
 ---
 
 ## 🔍 Project Overview
